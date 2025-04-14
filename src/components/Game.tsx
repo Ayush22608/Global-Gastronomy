@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 // Types
 type Difficulty = 'easy' | 'medium' | 'hard';
@@ -138,8 +138,111 @@ const Game: React.FC = () => {
   // Add state for custom confirmation modal
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   
+  // Sound related state
+  const [isMuted, setIsMuted] = useState(() => {
+    const saved = localStorage.getItem('foodGameMuted');
+    return saved ? saved === 'true' : false;
+  });
+  const [hasInteracted, setHasInteracted] = useState(false);
+  
+  // Audio refs
+  const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
+  const clickSoundRef = useRef<HTMLAudioElement | null>(null);
+  const roundWinSoundRef = useRef<HTMLAudioElement | null>(null);
+  const finalLossSoundRef = useRef<HTMLAudioElement | null>(null);
+  
+  // Initialize audio on mount
+  useEffect(() => {
+    // Create audio elements
+    backgroundMusicRef.current = new Audio('/sounds/background music(GG).wav');
+    clickSoundRef.current = new Audio('/sounds/click.ogg');
+    roundWinSoundRef.current = new Audio('/sounds/round win.wav');
+    finalLossSoundRef.current = new Audio('/sounds/final loss.mp3');
+    
+    // Setup background music
+    if (backgroundMusicRef.current) {
+      backgroundMusicRef.current.loop = true;
+      backgroundMusicRef.current.volume = 0.4;
+    }
+    
+    // Set volumes for other sounds
+    if (clickSoundRef.current) clickSoundRef.current.volume = 0.5;
+    if (roundWinSoundRef.current) roundWinSoundRef.current.volume = 0.7;
+    if (finalLossSoundRef.current) finalLossSoundRef.current.volume = 0.7;
+    
+    // Apply mute state
+    applyMuteState();
+    
+    // Cleanup function
+    return () => {
+      if (backgroundMusicRef.current) backgroundMusicRef.current.pause();
+      if (clickSoundRef.current) clickSoundRef.current.pause();
+      if (roundWinSoundRef.current) roundWinSoundRef.current.pause();
+      if (finalLossSoundRef.current) finalLossSoundRef.current.pause();
+    };
+  }, []);
+  
+  // Apply mute state to all audio elements
+  const applyMuteState = () => {
+    if (backgroundMusicRef.current) backgroundMusicRef.current.muted = isMuted;
+    if (clickSoundRef.current) clickSoundRef.current.muted = isMuted;
+    if (roundWinSoundRef.current) roundWinSoundRef.current.muted = isMuted;
+    if (finalLossSoundRef.current) finalLossSoundRef.current.muted = isMuted;
+    
+    // Save mute preference
+    localStorage.setItem('foodGameMuted', isMuted.toString());
+  };
+  
+  // Toggle mute function
+  const toggleMute = () => {
+    setIsMuted(prev => !prev);
+  };
+  
+  // Apply mute state when it changes
+  useEffect(() => {
+    applyMuteState();
+  }, [isMuted]);
+  
+  // Play sound function
+  const playSound = (soundRef: React.MutableRefObject<HTMLAudioElement | null>) => {
+    if (soundRef.current) {
+      // Reset audio to beginning for replaying sounds that might be in progress
+      soundRef.current.currentTime = 0;
+      soundRef.current.play().catch(e => console.log("Error playing sound:", e));
+    }
+  };
+  
+  // Play click sound
+  const playClickSound = () => {
+    playSound(clickSoundRef);
+  };
+  
+  // Start background music on first interaction
+  useEffect(() => {
+    if (hasInteracted && backgroundMusicRef.current) {
+      backgroundMusicRef.current.play().catch(e => console.log("Error playing background music:", e));
+    }
+  }, [hasInteracted]);
+  
+  // Handle user interaction
+  const handleInteraction = () => {
+    if (!hasInteracted) {
+      setHasInteracted(true);
+    }
+    playClickSound();
+  };
+  
+  // Play final loss sound when game over
+  useEffect(() => {
+    if (status === 'gameover') {
+      playSound(finalLossSoundRef);
+    }
+  }, [status]);
+  
   // Start a new game
   const startGame = (selectedDifficulty: Difficulty) => {
+    handleInteraction(); // Play click sound and ensure background music starts
+
     setDifficulty(selectedDifficulty);
     setScore(0);
     setRoundsPlayed(0);
@@ -207,6 +310,8 @@ const Game: React.FC = () => {
   const handleAnswer = (country: Country) => {
     if (!currentDish || showFact) return;
     
+    handleInteraction(); // Play click sound
+    
     // Stop the timer immediately when an answer is selected
     clearAllTimers();
     
@@ -214,8 +319,10 @@ const Game: React.FC = () => {
     setSelectedAnswer(country.name);
     const isCorrect = country.name === currentDish.country;
     
-    // Update score
+    // Play round win sound for correct answers
     if (isCorrect) {
+      playSound(roundWinSoundRef);
+      
       // Add bonus points for fast answers
       const timeBonus = Math.ceil(timeLeft * 0.5);
       const difficultyPoints = difficulty === 'easy' ? 10 : 
@@ -340,6 +447,19 @@ const Game: React.FC = () => {
           <span className="text-amber-600 mr-2">🏆</span> High Score: {highScore}
         </div>
       )}
+      
+      {/* Sound toggle button */}
+      <div className="mt-6">
+        <button 
+          onClick={() => {
+            toggleMute();
+            handleInteraction();
+          }}
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors shadow flex items-center justify-center mx-auto"
+        >
+          {isMuted ? '🔇 Unmute Sounds' : '🔊 Mute Sounds'}
+        </button>
+      </div>
     </div>
   );
 
@@ -369,6 +489,18 @@ const Game: React.FC = () => {
             <div className="text-sm text-gray-600">Round</div>
             <div className="text-2xl font-bold text-indigo-600">{roundsPlayed + 1}/10</div>
           </div>
+          
+          {/* Sound toggle button */}
+          <button 
+            onClick={() => {
+              toggleMute();
+              handleInteraction();
+            }}
+            className="w-10 h-10 flex items-center justify-center bg-white rounded-full shadow-md"
+            aria-label={isMuted ? "Unmute sounds" : "Mute sounds"}
+          >
+            {isMuted ? '🔇' : '🔊'}
+          </button>
         </div>
         
         {/* Timer */}
@@ -434,7 +566,10 @@ const Game: React.FC = () => {
         {/* Main menu button */}
         <div className="text-center mt-8">
           <button
-            onClick={() => setShowConfirmModal(true)}
+            onClick={() => {
+              setShowConfirmModal(true);
+              handleInteraction();
+            }}
             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors shadow"
           >
             Main Menu
@@ -456,7 +591,10 @@ const Game: React.FC = () => {
               <p className="text-gray-600 mb-6">Your current progress will be lost. Are you sure you want to exit?</p>
               <div className="flex justify-end space-x-3">
                 <button 
-                  onClick={() => setShowConfirmModal(false)}
+                  onClick={() => {
+                    setShowConfirmModal(false);
+                    handleInteraction();
+                  }}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   Cancel
@@ -465,6 +603,7 @@ const Game: React.FC = () => {
                   onClick={() => {
                     setShowConfirmModal(false);
                     setStatus('menu');
+                    handleInteraction();
                   }}
                   className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-colors"
                 >
@@ -498,17 +637,36 @@ const Game: React.FC = () => {
       
       <div className="flex flex-wrap justify-center gap-4">
         <button
-          onClick={() => startGame(difficulty)}
+          onClick={() => {
+            startGame(difficulty);
+            handleInteraction();
+          }}
           className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all shadow-lg transform hover:scale-105"
         >
           Try Again
         </button>
         
         <button
-          onClick={() => setStatus('menu')}
+          onClick={() => {
+            setStatus('menu');
+            handleInteraction();
+          }}
           className="bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors shadow"
         >
           Main Menu
+        </button>
+      </div>
+      
+      {/* Sound toggle button */}
+      <div className="mt-6">
+        <button 
+          onClick={() => {
+            toggleMute();
+            handleInteraction();
+          }}
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors shadow"
+        >
+          {isMuted ? '🔇 Unmute Sounds' : '🔊 Mute Sounds'}
         </button>
       </div>
     </div>
@@ -538,17 +696,36 @@ const Game: React.FC = () => {
       
       <div className="flex flex-wrap justify-center gap-4">
         <button
-          onClick={() => startGame(difficulty)}
+          onClick={() => {
+            startGame(difficulty);
+            handleInteraction();
+          }}
           className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all shadow-lg transform hover:scale-105"
         >
           Play Again
         </button>
         
         <button
-          onClick={() => setStatus('menu')}
+          onClick={() => {
+            setStatus('menu');
+            handleInteraction();
+          }}
           className="bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors shadow"
         >
           Main Menu
+        </button>
+      </div>
+      
+      {/* Sound toggle button */}
+      <div className="mt-6">
+        <button 
+          onClick={() => {
+            toggleMute();
+            handleInteraction();
+          }}
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors shadow"
+        >
+          {isMuted ? '🔇 Unmute Sounds' : '🔊 Mute Sounds'}
         </button>
       </div>
     </div>
@@ -556,7 +733,14 @@ const Game: React.FC = () => {
 
   // Main render function
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-purple-50 to-blue-50 flex flex-col items-center justify-center">
+    <div 
+      className="min-h-screen bg-gradient-to-b from-indigo-50 via-purple-50 to-blue-50 flex flex-col items-center justify-center"
+      onClick={() => {
+        if (!hasInteracted) {
+          setHasInteracted(true);
+        }
+      }}
+    >
       <div className="max-w-4xl w-full bg-white rounded-xl shadow-2xl overflow-hidden border border-indigo-100">
         {status === 'menu' && renderMenu()}
         {status === 'playing' && renderGame()}
